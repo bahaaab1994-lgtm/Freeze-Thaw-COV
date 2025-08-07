@@ -8,8 +8,8 @@ Created on Wed Aug  6 21:15:35 2025
 import streamlit as st
 import pandas as pd
 import numpy as np
-from data_loader import load_freeze_thaw_data, load_freeze_thaw_data_by_season, get_available_seasons
-from coordinate_matcher import find_nearest_location
+from opened_data_loader import load_freeze_thaw_data, load_freeze_thaw_data_by_season, get_available_seasons
+from opened_coordinate_matcher import find_nearest_location
 
 # Set page configuration
 st.set_page_config(

@@ -70,7 +70,9 @@ def load_freeze_thaw_data_by_season(season):
             f"{season}.xlsx",
             f"{season}.xls",
             f"FT_{season}.xlsx",
-            f"FT_{season}.xls"
+            f"FT_{season}.xls",
+            f"Predicted Freeze-Thaw Cycles ({season}).xlsx",
+            f"Predicted Freeze-Thaw Cycles ({season}).xls"
         ]
         
         for filename in potential_files:
@@ -115,6 +117,9 @@ def get_available_seasons():
                 # Remove common prefixes if present
                 if season.startswith("FT_"):
                     season = season[3:]
+                elif season.startswith("Predicted Freeze-Thaw Cycles (") and season.endswith(")"):
+                    # Extract season from format "Predicted Freeze-Thaw Cycles (2015-2016)"
+                    season = season[32:-1]  # Remove prefix and closing parenthesis
                 
                 seasons.add(season)
                 
