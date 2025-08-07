@@ -34,20 +34,14 @@ def get_states_for_season(season):
         # Get unique states, clean and deduplicate
         states = data['State'].dropna().astype(str).str.strip()
         unique_states = states.unique()
-        if hasattr(unique_states, 'tolist'):
-            states_list = unique_states.tolist()
-        else:
-            states_list = list(unique_states)
-        # Remove any empty strings and ensure proper deduplication
-        clean_states = [state for state in states_list if state and state.strip()]
-        # Use set to ensure no duplicates, then sort
+        clean_states = [state for state in unique_states if state and state.strip()]
         return sorted(list(set(clean_states)))
     except Exception as e:
         st.error(f"Error loading states for season {season}: {str(e)}")
         return []
 
 def calculate_statistics(location_data, available_seasons):
-    """Calculate 20-year, 5-year averages and COV for a specific location"""
+    """Calculate statistics for all years and last 5 years for a specific location"""
     try:
         # Get data for all seasons for this location
         location_stats = []
@@ -83,30 +77,38 @@ def calculate_statistics(location_data, available_seasons):
         stats_df = pd.DataFrame(location_stats)
         stats_df = stats_df.sort_values('Season', ascending=False)
         
-        # Calculate statistics
+        # Get data arrays
         total_cycles = stats_df['Total_Cycles'].values
         damaging_cycles = stats_df['Damaging_Cycles'].values
         
-        # 20-year average (all available data, up to 20 years)
-        total_20yr_avg = np.mean(total_cycles[:20]) if len(total_cycles) > 0 else 0
-        damaging_20yr_avg = np.mean(damaging_cycles[:20]) if len(damaging_cycles) > 0 else 0
+        # ALL YEARS STATISTICS
+        total_all_avg = float(np.mean(total_cycles)) if len(total_cycles) > 0 else 0
+        damaging_all_avg = float(np.mean(damaging_cycles)) if len(damaging_cycles) > 0 else 0
         
-        # 5-year average
-        total_5yr_avg = np.mean(total_cycles[:5]) if len(total_cycles) > 0 else 0
-        damaging_5yr_avg = np.mean(damaging_cycles[:5]) if len(damaging_cycles) > 0 else 0
+        total_all_cov = float((np.std(total_cycles) / np.mean(total_cycles) * 100)) if len(total_cycles) > 1 and np.mean(total_cycles) > 0 else 0
+        damaging_all_cov = float((np.std(damaging_cycles) / np.mean(damaging_cycles) * 100)) if len(damaging_cycles) > 1 and np.mean(damaging_cycles) > 0 else 0
         
-        # COV calculations
-        total_cov = (np.std(total_cycles) / np.mean(total_cycles) * 100) if len(total_cycles) > 1 and np.mean(total_cycles) > 0 else 0
-        damaging_cov = (np.std(damaging_cycles) / np.mean(damaging_cycles) * 100) if len(damaging_cycles) > 1 and np.mean(damaging_cycles) > 0 else 0
+        # LAST 5 YEARS STATISTICS
+        total_5yr_avg = float(np.mean(total_cycles[:5])) if len(total_cycles) >= 5 else float(np.mean(total_cycles)) if len(total_cycles) > 0 else 0
+        damaging_5yr_avg = float(np.mean(damaging_cycles[:5])) if len(damaging_cycles) >= 5 else float(np.mean(damaging_cycles)) if len(damaging_cycles) > 0 else 0
+        
+        # COV for last 5 years
+        recent_total = total_cycles[:5] if len(total_cycles) >= 5 else total_cycles
+        recent_damaging = damaging_cycles[:5] if len(damaging_cycles) >= 5 else damaging_cycles
+        
+        total_5yr_cov = float((np.std(recent_total) / np.mean(recent_total) * 100)) if len(recent_total) > 1 and np.mean(recent_total) > 0 else 0
+        damaging_5yr_cov = float((np.std(recent_damaging) / np.mean(recent_damaging) * 100)) if len(recent_damaging) > 1 and np.mean(recent_damaging) > 0 else 0
         
         return {
             'data': stats_df,
-            'total_20yr_avg': total_20yr_avg,
-            'damaging_20yr_avg': damaging_20yr_avg,
+            'total_all_avg': total_all_avg,
+            'damaging_all_avg': damaging_all_avg,
+            'total_all_cov': total_all_cov,
+            'damaging_all_cov': damaging_all_cov,
             'total_5yr_avg': total_5yr_avg,
             'damaging_5yr_avg': damaging_5yr_avg,
-            'total_cov': total_cov,
-            'damaging_cov': damaging_cov,
+            'total_5yr_cov': total_5yr_cov,
+            'damaging_5yr_cov': damaging_5yr_cov,
             'years_available': len(total_cycles)
         }
     except Exception as e:
@@ -129,24 +131,27 @@ def main():
     # Season selection
     st.subheader("📅 Select Season")
     
-    available_seasons = get_available_seasons()
-    if not available_seasons:
+    all_seasons = get_available_seasons()
+    if not all_seasons:
         st.error("No freeze-thaw data files found. Please add Excel files to the project.")
         return
+    
+    # Show only last 5 recent seasons
+    recent_seasons = sorted(all_seasons, reverse=True)[:5]
     
     # Create columns for season selection
     col1, col2 = st.columns([2, 1])
     
     with col1:
         selected_season = st.selectbox(
-            "Choose a season:",
-            available_seasons,
-            index=len(available_seasons)-1,  # Select most recent season by default
+            "Choose a season (Last 5 seasons):",
+            recent_seasons,
+            index=0,  # Select most recent season by default
             help="Select the season for which you want to query freeze-thaw data"
         )
     
     with col2:
-        st.metric("Available Seasons", len(available_seasons))
+        st.metric("Recent Seasons", len(recent_seasons))
     
     # Load data for selected season
     try:
@@ -177,10 +182,11 @@ def main():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        state = st.text_input(
-            "State", 
-            placeholder="e.g., Colorado",
-            help="Enter the state name"
+        state = st.selectbox(
+            "State",
+            available_states,
+            index=0,
+            help="Select the state name"
         )
     
     with col2:
@@ -206,8 +212,8 @@ def main():
     # Search button
     if st.button("Search for Freeze-Thaw Data", type="primary"):
         # Validate inputs
-        if not state or state.strip() == "":
-            st.error("Please enter a state name.")
+        if not state:
+            st.error("Please select a state.")
             return
         
         if latitude is None or longitude is None:
@@ -220,8 +226,8 @@ def main():
             st.error(f"No data available for season {selected_season}")
             return
         
-        # Normalize state input
-        state_normalized = state.strip().title()
+        # Use selected state directly
+        state_normalized = state
         
         # Filter data by state first
         state_data = search_data[search_data['State'].str.contains(state_normalized, case=False, na=False)]
@@ -230,9 +236,9 @@ def main():
             st.error(f"No data found for state: {state_normalized}")
             
             # Show available states
-            available_states = sorted(search_data['State'].unique())
+            available_states_list = sorted(search_data['State'].unique())
             st.info("Available states in database:")
-            st.write(", ".join(available_states))
+            st.write(", ".join(available_states_list))
             return
         
         # Find nearest location
@@ -274,7 +280,7 @@ def main():
             st.subheader("📊 Historical Analysis")
             
             with st.spinner("Calculating historical statistics..."):
-                stats = calculate_statistics(nearest_location, available_seasons)
+                stats = calculate_statistics(nearest_location, all_seasons)
             
             if stats is None:
                 st.warning("Unable to calculate historical statistics for this location.")
@@ -282,48 +288,45 @@ def main():
                 # Display statistical summary
                 st.subheader("🎯 Statistical Summary")
                 
-                # Create metrics layout
-                metric_col1, metric_col2 = st.columns(2)
+                # ALL YEARS SECTION
+                st.markdown("### 📈 All Years Analysis")
+                all_col1, all_col2 = st.columns(2)
                 
-                with metric_col1:
-                    st.markdown("**Total Freeze-Thaw Cycles**")
+                with all_col1:
+                    st.markdown("**Total Freeze-Thaw Cycles (All Years)**")
+                    st.metric("Average", f"{stats['total_all_avg']:.1f}")
                     
-                    avg_col1, avg_col2 = st.columns(2)
-                    with avg_col1:
-                        years_text = f"{min(stats['years_available'], 20)}-Year Average"
-                        st.metric(years_text, f"{stats['total_20yr_avg']:.1f}")
-                    with avg_col2:
-                        years_text = f"{min(stats['years_available'], 5)}-Year Average" 
-                        st.metric(years_text, f"{stats['total_5yr_avg']:.1f}")
-                    
-                    # COV for total cycles
-                    total_var_cat, total_var_icon = get_variability_category(stats['total_cov'])
-                    st.metric(
-                        "Variability (COV)",
-                        f"{stats['total_cov']:.1f}%",
-                        help="Coefficient of Variation - measures data variability"
-                    )
-                    st.markdown(f"{total_var_icon} **{total_var_cat} Variability**")
+                    total_all_var_cat, total_all_var_icon = get_variability_category(stats['total_all_cov'])
+                    st.metric("COV", f"{stats['total_all_cov']:.1f}%")
+                    st.markdown(f"{total_all_var_icon} **{total_all_var_cat} Variability**")
                 
-                with metric_col2:
-                    st.markdown("**Damaging Freeze-Thaw Cycles**")
+                with all_col2:
+                    st.markdown("**Damaging Freeze-Thaw Cycles (All Years)**")
+                    st.metric("Average", f"{stats['damaging_all_avg']:.1f}")
                     
-                    avg_col1, avg_col2 = st.columns(2)
-                    with avg_col1:
-                        years_text = f"{min(stats['years_available'], 20)}-Year Average"
-                        st.metric(years_text, f"{stats['damaging_20yr_avg']:.1f}")
-                    with avg_col2:
-                        years_text = f"{min(stats['years_available'], 5)}-Year Average"
-                        st.metric(years_text, f"{stats['damaging_5yr_avg']:.1f}")
+                    damaging_all_var_cat, damaging_all_var_icon = get_variability_category(stats['damaging_all_cov'])
+                    st.metric("COV", f"{stats['damaging_all_cov']:.1f}%")
+                    st.markdown(f"{damaging_all_var_icon} **{damaging_all_var_cat} Variability**")
+                
+                # LAST 5 YEARS SECTION
+                st.markdown("### 📊 Last 5 Years Analysis")
+                recent_col1, recent_col2 = st.columns(2)
+                
+                with recent_col1:
+                    st.markdown("**Total Freeze-Thaw Cycles (Last 5 Years)**")
+                    st.metric("Average", f"{stats['total_5yr_avg']:.1f}")
                     
-                    # COV for damaging cycles
-                    damaging_var_cat, damaging_var_icon = get_variability_category(stats['damaging_cov'])
-                    st.metric(
-                        "Variability (COV)",
-                        f"{stats['damaging_cov']:.1f}%",
-                        help="Coefficient of Variation - measures data variability"
-                    )
-                    st.markdown(f"{damaging_var_icon} **{damaging_var_cat} Variability**")
+                    total_5yr_var_cat, total_5yr_var_icon = get_variability_category(stats['total_5yr_cov'])
+                    st.metric("COV", f"{stats['total_5yr_cov']:.1f}%")
+                    st.markdown(f"{total_5yr_var_icon} **{total_5yr_var_cat} Variability**")
+                
+                with recent_col2:
+                    st.markdown("**Damaging Freeze-Thaw Cycles (Last 5 Years)**")
+                    st.metric("Average", f"{stats['damaging_5yr_avg']:.1f}")
+                    
+                    damaging_5yr_var_cat, damaging_5yr_var_icon = get_variability_category(stats['damaging_5yr_cov'])
+                    st.metric("COV", f"{stats['damaging_5yr_cov']:.1f}%")
+                    st.markdown(f"{damaging_5yr_var_icon} **{damaging_5yr_var_cat} Variability**")
                 
                 # Variability interpretation guide
                 st.info(
@@ -369,14 +372,14 @@ def main():
                 
                 # Additional analysis
                 if stats['years_available'] >= 2:
-                    damage_percentage_20yr = (stats['damaging_20yr_avg'] / stats['total_20yr_avg'] * 100) if stats['total_20yr_avg'] > 0 else 0
+                    damage_percentage_all = (stats['damaging_all_avg'] / stats['total_all_avg'] * 100) if stats['total_all_avg'] > 0 else 0
                     damage_percentage_5yr = (stats['damaging_5yr_avg'] / stats['total_5yr_avg'] * 100) if stats['total_5yr_avg'] > 0 else 0
                     
                     st.markdown("### 🔍 Analysis Summary")
                     st.info(
-                        f"**Long-term Analysis ({min(stats['years_available'], 20)} years):** "
-                        f"{damage_percentage_20yr:.1f}% of freeze-thaw cycles are classified as potentially damaging.\n\n"
-                        f"**Recent Analysis ({min(stats['years_available'], 5)} years):** "
+                        f"**All Years Analysis ({stats['years_available']} years):** "
+                        f"{damage_percentage_all:.1f}% of freeze-thaw cycles are classified as potentially damaging.\n\n"
+                        f"**Recent Analysis (Last 5 years):** "
                         f"{damage_percentage_5yr:.1f}% of freeze-thaw cycles are classified as potentially damaging."
                     )
             
@@ -395,17 +398,11 @@ def main():
     st.markdown("---")
     st.subheader("ℹ️ About This Data")
     st.markdown("""
-    This application provides freeze-thaw cycle data with comprehensive statistical analysis from monitoring stations across various states.
+    This application provides freeze-thaw cycle data from monitoring stations across various states.
     
-    **Statistical Features:**
-    - **Multi-year Averages**: Shows both long-term (up to 20 years) and recent (5 years) trends
-    - **Variability Analysis**: Coefficient of Variation (COV) measures data consistency over time
-    - **Historical Context**: Individual season data for the most recent 5 years
-    
-    **Data Definitions:**
-    - **Total Freeze-Thaw Cycles**: All freezing events during the monitoring period
-    - **Damaging Freeze-Thaw Cycles**: Cycles when Degree of Saturation (DOS) exceeded 80%, indicating potential for concrete damage
-    - **Each season represents a winter period from September to April**
+    - **Each season represents a winter period from September to April.**
+    - **Total Freeze-Thaw Cycles**: Represents all freezing events that the concrete experienced during the monitoring period, regardless of the moisture condition.
+    - **Damaging Freeze-Thaw Cycles**: Refers to the subset of freeze-thaw cycles during which the Degree of Saturation (DOS) exceeded the critical threshold of 80%, making the concrete susceptible to freeze-thaw damage.
     
     *Note: Results are based on the nearest available monitoring station and may not reflect exact conditions at your specific location.*
     """)
