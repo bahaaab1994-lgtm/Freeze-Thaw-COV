@@ -8,8 +8,8 @@ Created on Wed Aug  6 21:15:35 2025
 import streamlit as st
 import pandas as pd
 import numpy as np
-from opened_data_loader import load_freeze_thaw_data, load_freeze_thaw_data_by_season, get_available_seasons
-from opened_coordinate_matcher import find_nearest_location
+from data_loader import load_freeze_thaw_data, load_freeze_thaw_data_by_season, get_available_seasons
+from coordinate_matcher import find_nearest_location
 
 # Set page configuration
 st.set_page_config(
@@ -46,29 +46,50 @@ def calculate_statistics(location_data, available_seasons):
         # Get data for all seasons for this location
         location_stats = []
         
+        print(f"Calculating statistics for: {location_data['County']}, {location_data['State']}")
+        print(f"Target coordinates: {location_data['Latitude']:.6f}, {location_data['Longitude']:.6f}")
+        
         for season in available_seasons:
             try:
                 season_data = load_freeze_thaw_data_by_season(season)
                 if season_data.empty:
                     continue
                 
-                # Find matching record for this location
-                matching_record = season_data[
-                    (season_data['State'] == location_data['State']) &
-                    (season_data['County'] == location_data['County']) &
-                    (abs(season_data['Latitude'] - location_data['Latitude']) < 0.001) &
-                    (abs(season_data['Longitude'] - location_data['Longitude']) < 0.001)
+                # First try exact match by State and County
+                exact_match = season_data[
+                    (season_data['State'].str.strip().str.upper() == location_data['State'].strip().upper()) &
+                    (season_data['County'].str.strip().str.upper() == location_data['County'].strip().upper())
                 ]
                 
-                if not matching_record.empty:
-                    record = matching_record.iloc[0]
+                if not exact_match.empty:
+                    # If multiple matches, find the one with closest coordinates
+                    if len(exact_match) > 1:
+                        distances = []
+                        for idx, row in exact_match.iterrows():
+                            lat_diff = abs(row['Latitude'] - location_data['Latitude'])
+                            lon_diff = abs(row['Longitude'] - location_data['Longitude'])
+                            distance = (lat_diff**2 + lon_diff**2)**0.5
+                            distances.append(distance)
+                        
+                        closest_idx = exact_match.index[np.argmin(distances)]
+                        record = exact_match.loc[closest_idx]
+                    else:
+                        record = exact_match.iloc[0]
+                    
                     location_stats.append({
                         'Season': season,
                         'Total_Cycles': record['Total_Freeze_Thaw_Cycles'],
                         'Damaging_Cycles': record['Damaging_Freeze_Thaw_Cycles']
                     })
+                    print(f"Found data for {season}: Total={record['Total_Freeze_Thaw_Cycles']}, Damaging={record['Damaging_Freeze_Thaw_Cycles']}")
+                else:
+                    print(f"No matching data found for {season}")
+                    
             except Exception as e:
+                print(f"Error processing season {season}: {str(e)}")
                 continue
+        
+        print(f"Total seasons with data: {len(location_stats)}")
         
         if not location_stats:
             return None
